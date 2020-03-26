@@ -32,6 +32,7 @@ static struct {
 	int running_jobs;
 	int notify_pipe[2];
 	struct timespec status_update_deadline;
+	struct li_unit_test *first_unfinished_test;
 	struct li_unit_test *remaining_tests;
 } runner_state;
 
@@ -96,9 +97,9 @@ static int spawn_test(int default_timeout)
 	return 0;
 }
 
-static int handle_waitpid(struct li_unit_test *test_list, pid_t pid, int status)
+static int handle_waitpid(pid_t pid, int status)
 {
-	struct li_unit_test *test = test_list;
+	struct li_unit_test *test = runner_state.first_unfinished_test;
 
 	struct timespec now;
 	if (clock_gettime(CLOCK_MONOTONIC, &now) < 0) {
@@ -144,6 +145,17 @@ static int handle_waitpid(struct li_unit_test *test_list, pid_t pid, int status)
 		runner_state.completed_tests, runner_state.total_tests,
 		test->name, reason, (long long)test->priv.elapsed_time.tv_sec,
 		test->priv.elapsed_time.tv_nsec / NSEC_PER_MSEC);
+
+	if (runner_state.first_unfinished_test == test) {
+		/* We have finished, and are the furthest back
+		   unfinished test, so move this pointer along to its
+		   new home */
+		while (runner_state.first_unfinished_test &&
+		       runner_state.first_unfinished_test->priv.state >=
+			       _LI_UNIT_SUCCEEDED)
+			runner_state.first_unfinished_test =
+				runner_state.first_unfinished_test->rest;
+	}
 
 	return 0;
 }
@@ -216,7 +228,7 @@ static enum {
 	}
 
 	if (pid > 0) {
-		if (handle_waitpid(options->test_list, pid, status) < 0) {
+		if (handle_waitpid(pid, status) < 0) {
 			fprintf(stderr, "handle_waitpid failed!\n");
 			return TEST_RUNNER_ITERATE_FAILURE;
 		}
@@ -241,7 +253,7 @@ static enum {
 	}
 
 	struct timespec *next_deadline = &runner_state.status_update_deadline;
-	for (struct li_unit_test *test = options->test_list;
+	for (struct li_unit_test *test = runner_state.first_unfinished_test;
 	     test != runner_state.remaining_tests; test = test->rest) {
 		if (test->priv.state == _LI_UNIT_RUNNING &&
 		    test->priv.has_deadline &&
@@ -334,6 +346,7 @@ int li_unit_run_tests(struct li_unit_runner_options *options)
 	memset(&runner_state, 0, sizeof(runner_state));
 
 	runner_state.running_jobs = 0;
+	runner_state.first_unfinished_test = options->test_list;
 	runner_state.remaining_tests = options->test_list;
 
 	for (struct li_unit_test *test = options->test_list; test;
