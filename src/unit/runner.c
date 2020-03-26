@@ -331,6 +331,8 @@ int li_unit_run_tests(struct li_unit_runner_options *options)
 	unsigned int failures = 0;
 	unsigned int informational_failures = 0;
 
+	memset(&runner_state, 0, sizeof(runner_state));
+
 	runner_state.running_jobs = 0;
 	runner_state.remaining_tests = options->test_list;
 
