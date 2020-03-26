@@ -1,6 +1,6 @@
 SHELL:=/bin/bash
 CC:=gcc
-LIBS:=-lreadline -lhistory -lcgraph -lgvc
+LIBS:=
 FLAGS_release:=-O2 -flto
 FLAGS_debug:=-Og -ggdb3 -DLITHIUM_TEST_BUILD
 COMMONFLAGS:=-Werror -Wall
