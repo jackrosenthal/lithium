@@ -16,6 +16,7 @@
 #include <stddef.h>
 #include <sys/types.h>
 
+#include "util/reallocating_buffer.h"
 #include "macrolib.h"
 
 /**
@@ -89,6 +90,8 @@ struct li_unit_test {
 		struct timespec start_time;
 		struct timespec elapsed_time;
 		struct timespec deadline;
+		int output_pipe[2];
+		struct li_reallocating_buffer output;
 	} priv;
 
 	/**

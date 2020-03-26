@@ -3,6 +3,8 @@
  * found in the LICENSE file.
  */
 
+#include <limits.h>
+#include <stdio.h>
 #include <unistd.h>
 
 #include "unit.h"
@@ -53,4 +55,13 @@ DEFTEST("lithium.unit.runner.failure", {})
 	};
 
 	EXPECT(li_unit_run_tests(&options) == 1);
+}
+
+DEFTEST("lithium.unit.runner.spam_output", {})
+{
+	for (size_t i = 0; i < PIPE_BUF; i++) {
+		for (char c = 'a'; c <= 'z'; c++) {
+			putchar(c);
+		}
+	}
 }

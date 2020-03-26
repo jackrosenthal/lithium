@@ -26,6 +26,8 @@
 
 struct li_unit_test *li_unit_test_list = NULL;
 
+#define TEST_OUTPUT_READ_SIZE 4096
+
 static struct {
 	unsigned int completed_tests;
 	unsigned int total_tests;
@@ -47,6 +49,7 @@ static const char *test_state_pretty_print[] = {
 
 static int spawn_test(int default_timeout)
 {
+	int flags;
 	struct li_unit_test *test = runner_state.remaining_tests;
 
 	if (test->priv.state != _LI_UNIT_NOT_STARTED) {
@@ -65,6 +68,11 @@ static int spawn_test(int default_timeout)
 		return -1;
 	}
 
+	if (pipe(test->priv.output_pipe) < 0) {
+		perror("pipe failed");
+		return -1;
+	}
+
 	pid_t pid = fork();
 	if (pid < 0) {
 		perror("fork failed");
@@ -73,10 +81,43 @@ static int spawn_test(int default_timeout)
 
 	if (pid == 0) {
 		/* child process */
+
+		if (close(test->priv.output_pipe[0]) < 0) {
+			perror("close failed");
+			abort();
+		}
+
+		/* Redirect stdout to pipe */
+		if (dup2(test->priv.output_pipe[1], STDOUT_FILENO) < 0) {
+			perror("dup2 failed");
+			abort();
+		}
+
+		/* Redirect stderr to pipe */
+		if (dup2(test->priv.output_pipe[1], STDERR_FILENO) < 0) {
+			perror("dup2 failed");
+			abort();
+		}
+
 		li_unit_run_test(test);
 	}
 
 	test->priv.pid = pid;
+
+	if (close(test->priv.output_pipe[1]) < 0) {
+		perror("close failed");
+		return -1;
+	}
+
+	if ((flags = fcntl(test->priv.output_pipe[0], F_GETFL)) < 0) {
+		perror("fcntl failed");
+		return -1;
+	}
+
+	if (fcntl(test->priv.output_pipe[0], F_SETFL, flags | O_NONBLOCK) < 0) {
+		perror("fcntl failed");
+		return -1;
+	}
 
 	/* compute the deadline for the test */
 	int timeout_multiplier = test->options.timeout_multiplier;
@@ -95,6 +136,28 @@ static int spawn_test(int default_timeout)
 	}
 
 	return 0;
+}
+
+static int test_update_output_buffer(struct li_unit_test *test, bool block)
+{
+	for (;;) {
+		ssize_t read_rv = li_reallocating_buffer_read(
+			test->priv.output_pipe[0], &test->priv.output,
+			TEST_OUTPUT_READ_SIZE);
+
+		if (read_rv < 0) {
+			if (errno == EWOULDBLOCK || errno == EAGAIN) {
+				if (block)
+					continue;
+				else
+					return 0;
+			}
+			return -1;
+		}
+
+		if (read_rv == 0)
+			return 0;
+	}
 }
 
 static int handle_waitpid(pid_t pid, int status)
@@ -145,6 +208,9 @@ static int handle_waitpid(pid_t pid, int status)
 		runner_state.completed_tests, runner_state.total_tests,
 		test->name, reason, (long long)test->priv.elapsed_time.tv_sec,
 		test->priv.elapsed_time.tv_nsec / NSEC_PER_MSEC);
+
+	if (test_update_output_buffer(test, true) < 0)
+		return -1;
 
 	if (runner_state.first_unfinished_test == test) {
 		/* We have finished, and are the furthest back
@@ -274,13 +340,29 @@ static enum {
 	fd_set rfds;
 	FD_ZERO(&rfds);
 	FD_SET(runner_state.notify_pipe[0], &rfds);
-	if (pselect(runner_state.notify_pipe[0] + 1, &rfds, NULL, NULL,
-		    &timeout, NULL) < 0) {
-		if (errno == EINTR)
-			return TEST_RUNNER_ITERATE_AGAIN;
 
+	int maxfd = runner_state.notify_pipe[0];
+	for (struct li_unit_test *test = runner_state.first_unfinished_test;
+	     test != runner_state.remaining_tests; test = test->rest) {
+		if (test->priv.state == _LI_UNIT_RUNNING) {
+			int fd = test->priv.output_pipe[0];
+			FD_SET(fd, &rfds);
+			if (fd > maxfd)
+				maxfd = fd;
+		}
+	}
+
+	if (pselect(maxfd + 1, &rfds, NULL, NULL, &timeout, NULL) < 0 &&
+	    errno != EINTR) {
 		perror("pselect failed");
 		return TEST_RUNNER_ITERATE_FAILURE;
+	}
+
+	for (struct li_unit_test *test = runner_state.first_unfinished_test;
+	     test != runner_state.remaining_tests; test = test->rest) {
+		if (FD_ISSET(test->priv.output_pipe[0], &rfds) &&
+		    test_update_output_buffer(test, false) < 0)
+			return -1;
 	}
 
 	return TEST_RUNNER_ITERATE_AGAIN;
@@ -325,8 +407,9 @@ static void print_failure_output(struct li_unit_test *test)
 			top_output[i] = '=';
 	}
 	fprintf(stderr, "%s\n", top_output);
-	fprintf(stderr, "TODO: OUTPUT GOES HERE\n");
-	fprintf(stderr, "%s\n", bottom_output);
+	fwrite(test->priv.output.buf, sizeof(char), test->priv.output.buf_usage,
+	       stderr);
+	fprintf(stderr, "%s\n\n", bottom_output);
 }
 
 int li_unit_run_tests(struct li_unit_runner_options *options)
@@ -392,18 +475,19 @@ int li_unit_run_tests(struct li_unit_runner_options *options)
 		return -1;
 	}
 
+	int rv = -1;
 	for (;;) {
 		switch (test_runner_iterate(options)) {
 		case TEST_RUNNER_ITERATE_AGAIN:
 			continue;
 		case TEST_RUNNER_ITERATE_SUCCESS:
-			goto exit;
+			goto exit_success;
 		default:
-			return -1;
+			goto exit;
 		}
 	}
 
-exit:
+exit_success:
 	fprintf(stderr, "\n");
 
 	for (struct li_unit_test *test = options->test_list; test;
@@ -422,9 +506,16 @@ exit:
 		fprintf(stderr, "All tests passed!\n");
 	else if (informational_failures != 0 && failures == 0)
 		fprintf(stderr,
-			"\nSuccess, all failing tests are informational!\n");
+			"Success, all failing tests are informational!\n");
 	else
-		fprintf(stderr, "\nYou have failing tests!\n");
+		fprintf(stderr, "You have failing tests!\n");
 
-	return failures > 0;
+	rv = failures > 0;
+
+exit:
+	for (struct li_unit_test *test = options->test_list; test;
+	     test = test->rest) {
+		free(test->priv.output.buf);
+	}
+	return rv;
 }

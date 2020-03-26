@@ -36,7 +36,7 @@ void _li_unit_test_assert(bool result, const char *fail_msg)
 		successful_assertions += 1;
 	} else {
 		failed_assertions += 1;
-		fprintf(stderr, "%s\n", fail_msg);
+		printf("%s\n", fail_msg);
 		handle_test_exit(true);
 	}
 }
@@ -47,7 +47,7 @@ bool _li_unit_test_expect(bool result, const char *fail_msg)
 		successful_assertions += 1;
 	} else {
 		failed_assertions += 1;
-		fprintf(stderr, "%s\n", fail_msg);
+		printf("%s\n", fail_msg);
 	}
 
 	return result;
