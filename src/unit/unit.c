@@ -23,30 +23,9 @@
 #include "cmdline.h"
 #include "constants.h"
 #include "unit.h"
+#include "util/timespec.h"
 
 struct li_unit_test *li_unit_test_list = NULL;
-
-static void timespec_subtract(const struct timespec *a,
-			      const struct timespec *b, struct timespec *result)
-{
-	result->tv_sec = a->tv_sec - b->tv_sec;
-
-	if (a->tv_nsec < b->tv_nsec) {
-		result->tv_sec -= 1;
-		result->tv_nsec = (NSEC_PER_SEC - b->tv_nsec) + a->tv_nsec;
-	} else {
-		result->tv_nsec = a->tv_nsec - b->tv_nsec;
-	}
-}
-
-static bool timespec_lt(const struct timespec *a, const struct timespec *b)
-{
-	if (a->tv_sec < b->tv_sec)
-		return true;
-	if (a->tv_sec == b->tv_sec)
-		return a->tv_nsec < b->tv_nsec;
-	return false;
-}
 
 static struct {
 	unsigned int completed_tests;
@@ -145,8 +124,8 @@ static int handle_waitpid(struct li_unit_test *test_list, pid_t pid, int status)
 	}
 
 	runner_state.running_jobs--;
-	timespec_subtract(&now, &test->priv.start_time,
-			  &test->priv.elapsed_time);
+	li_util_timespec_subtract(&now, &test->priv.start_time,
+				  &test->priv.elapsed_time);
 	runner_state.completed_tests++;
 
 	const char *reason;
@@ -267,18 +246,19 @@ static enum {
 	     test != runner_state.remaining_tests; test = test->rest) {
 		if (test->priv.state == _LI_UNIT_RUNNING &&
 		    test->priv.has_deadline &&
-		    timespec_lt(&test->priv.deadline, &now)) {
+		    li_util_timespec_lt(&test->priv.deadline, &now)) {
 			handle_deadline(test);
 			return TEST_RUNNER_ITERATE_AGAIN;
 		} else if (test->priv.state == _LI_UNIT_RUNNING &&
 			   test->priv.has_deadline &&
-			   timespec_lt(&test->priv.deadline, next_deadline)) {
+			   li_util_timespec_lt(&test->priv.deadline,
+					       next_deadline)) {
 			next_deadline = &test->priv.deadline;
 		}
 	}
 
 	struct timespec timeout;
-	timespec_subtract(next_deadline, &now, &timeout);
+	li_util_timespec_subtract(next_deadline, &now, &timeout);
 
 	fd_set rfds;
 	FD_ZERO(&rfds);
