@@ -98,7 +98,7 @@ both the code being mocked and the tests providing mocked values:
 You'll need to provide a definition of the variable too, outside of
 the header file:
 
-LI_MOCKABLE_STORAGE_T(read_file) read_file_mock = { 0 };
+    LI_MOCKABLE_STORAGE_T(read_file) read_file_mock = { 0 };
 
 Then, in place of the expression which is mockable, use the
 ``LI_MOCKABLE(storage_var, default_value)`` macro. For example:
