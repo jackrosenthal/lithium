@@ -203,18 +203,17 @@ void __noreturn li_unit_run_test(const struct li_unit_test *test);
 	}                                                   \
 	static void FUNCTION_ID(void)
 
-void __test_only _li_unit_test_assert(bool result, const char *fail_msg);
-bool __test_only _li_unit_test_expect(bool result, const char *fail_msg);
+void _li_unit_test_assert(bool result, const char *fail_msg);
+bool _li_unit_test_expect(bool result, const char *fail_msg);
 
-void __test_only _li_unit_test_assert_null(const void *ptr,
-					   const char *fail_msg);
-bool __test_only _li_unit_test_expect_null(const void *ptr,
-					   const char *fail_msg);
+void _li_unit_test_assert_null(const void *ptr, const char *fail_msg);
+bool _li_unit_test_expect_null(const void *ptr, const char *fail_msg);
 
-void __test_only _li_unit_test_assert_not_null(const void *ptr,
-					       const char *fail_msg);
-bool __test_only _li_unit_test_expect_not_null(const void *ptr,
-					       const char *fail_msg);
+void _li_unit_test_assert_not_null(const void *ptr, const char *fail_msg);
+bool _li_unit_test_expect_not_null(const void *ptr, const char *fail_msg);
+
+void __test_only _li_unit_test_error_assert(bool discarded_expr);
+bool __test_only _li_unit_test_error_expect(bool discarded_expr);
 
 #define _LI_UNIT_FORMAT_FAIL_STRING2(macro, file, line, reason, data) \
 	file ":" #line ": " #macro " failure, " reason ": " #data
@@ -222,6 +221,7 @@ bool __test_only _li_unit_test_expect_not_null(const void *ptr,
 #define _LI_UNIT_FORMAT_FAIL_STRING(macro, file, line, reason, data) \
 	_LI_UNIT_FORMAT_FAIL_STRING2(macro, file, line, reason, data)
 
+#ifdef LITHIUM_TEST_BUILD
 #define ASSERT(condition)                                               \
 	_li_unit_test_assert(                                           \
 		condition,                                              \
@@ -255,5 +255,13 @@ bool __test_only _li_unit_test_expect_not_null(const void *ptr,
 		ptr,                                                   \
 		_LI_UNIT_FORMAT_FAIL_STRING(EXPECT_NOT_NULL, __FILE__, \
 					    __LINE__, "pointer is NULL", ptr))
+#else
+#define ASSERT(expr) _li_unit_test_error_assert(expr)
+#define EXPECT(expr) _li_unit_test_error_expect(expr)
+#define ASSERT_NULL(expr) _li_unit_test_error_assert(expr)
+#define EXPECT_NULL(expr) _li_unit_test_error_expect(expr)
+#define ASSERT_NOT_NULL(expr) _li_unit_test_error_assert(expr)
+#define EXPECT_NOT_NULL(expr) _li_unit_test_error_expect(expr)
+#endif
 
 #endif /* LITHIUM_UNIT_H_ */

@@ -1,10 +1,13 @@
 SHELL:=/bin/bash
 CC:=gcc
+LD:=$(CC)
+AR:=ar
 LIBS:=
 FLAGS_release:=-O2 -flto
 FLAGS_debug:=-Og -ggdb3 -DLITHIUM_TEST_BUILD
 COMMONFLAGS:=-Werror -Wall
-CFLAGS:=-std=gnu17 $(COMMONFLAGS) -Iinclude
+CFLAGS:=-std=gnu17 $(COMMONFLAGS) -Iinclude -fPIC
+LDFLAGS:=$(CFLAGS)
 OUTDIR:=build
 
 # Recursive wildcard function, stackoverflow.com/questions/2483182
@@ -33,9 +36,6 @@ _create_dirs := $(foreach d,$(DIRS),$(shell [[ -d $(d) ]] || mkdir -p $(d)))
 
 binpath = $(filter %/$(1),$(BINS))
 
-LD:=$(CC)
-LDFLAGS:=$(CFLAGS)
-
 ifeq ($(V),)
 cmd = @printf '  %-8s %s\n' $(cmd_$(1)_name) $(if $(2),$(2),"$@") ; $(call cmd_$(1),$(2))
 else
@@ -57,6 +57,12 @@ cmd_c_to_o = $(CC) $(CFLAGS) $(target_flags) $(DEPFLAGS) -c $< -o $@
 cmd_o_to_elf_name = LD
 cmd_o_to_elf = $(LD) $(LDFLAGS) $(target_flags) $^ $(LIBS) -o $@
 
+cmd_o_to_ar_name = AR
+cmd_o_to_ar = $(AR) rc $@ $^
+
+cmd_o_to_so_name = LIB
+cmd_o_to_so = $(LD) -shared -o $@ $^
+
 cmd_clean_name = CLEAN
 cmd_clean = rm -rf $(1)
 
@@ -68,7 +74,7 @@ cmd_run = $(MAKE) $(1) && ./$(1)
 
 .SECONDARY:
 .PHONY: all
-all: $(BINS_debug) $(BINS_release)
+all: $(BINS_debug) $(BINS_release) build/release/libithium.so build/release/libithium.a
 
 -include $(call rwildcard,$(OUTDIR),*.d)
 
@@ -76,6 +82,16 @@ $(OUTDIR)/debug/bin/%: $(OUTDIR)/debug/mains/%.o $(OBJFILES_SRC_debug)
 	$(call cmd,o_to_elf)
 $(OUTDIR)/release/bin/%: $(OUTDIR)/release/mains/%.o $(OBJFILES_SRC_release)
 	$(call cmd,o_to_elf)
+
+$(OUTDIR)/debug/libithium.a: $(OBJFILES_SRC_debug)
+	$(call cmd,o_to_ar)
+$(OUTDIR)/release/libithium.a: $(OBJFILES_SRC_release)
+	$(call cmd,o_to_ar)
+
+$(OUTDIR)/debug/libithium.so: $(OBJFILES_SRC_debug)
+	$(call cmd,o_to_so)
+$(OUTDIR)/release/libithium.so: $(OBJFILES_SRC_release)
+	$(call cmd,o_to_so)
 
 $(OUTDIR)/debug/%.o: %.c
 	$(call cmd,c_to_o)
