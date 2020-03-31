@@ -212,6 +212,11 @@ static int handle_waitpid(pid_t pid, int status)
 	if (test_update_output_buffer(test, true) < 0)
 		return -1;
 
+	if (close(test->priv.output_pipe[0]) < 0) {
+		perror("close error");
+		return -1;
+	}
+
 	if (runner_state.first_unfinished_test == test) {
 		/* We have finished, and are the furthest back
 		   unfinished test, so move this pointer along to its
